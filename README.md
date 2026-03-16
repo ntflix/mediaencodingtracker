@@ -1,7 +1,7 @@
 # Media Encoding Tracker
 
 A containerised Python web app for tracking, scheduling and batch-converting
-media files on an SMB share — built for the Raspberry Pi 4B.
+media files in a directory — built for the Raspberry Pi 4B.
 
 Made pretty much entirely by GPT-5.3-Codex in the background while I was doing other things. All I wanted was a simple tool to keep track of my HEVC-encoded media library and be able to convert to H.264 for better compatibility with my ancient Apple TV so that's what it delivered.
 
