@@ -21,6 +21,14 @@ Made pretty much entirely by GPT-5.3-Codex in the background while I was doing o
 | **Auth**                    | HTTP Basic Auth; credentials set via environment variable                          |
 | **Docker**                  | Single image with ffmpeg; tested on ARM64 (RPi4b)                                  |
 
+## Screenshots (yay)
+
+![Dashboard with stats, total files, stats on codec totals etc.](img/dashboard.png)
+
+![Files page with a list of media files, their codecs, resolutions, durations, sizes, and buttons to scan or convert](img/files.png)
+
+![Settings page with options for scan schedule, auto-convert schedule, default quality, delete original after convert, and a one-time setup check](img/settings.png)
+
 ---
 
 ## Quick start
