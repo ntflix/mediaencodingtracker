@@ -1,0 +1,364 @@
+<!doctype html>
+<html lang="en" data-bs-theme="dark">
+
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Media Encoding Tracker</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" />
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" />
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+  <style>
+    body {
+      min-height: 100vh;
+      padding-bottom: 40px;
+    }
+
+    .sidebar {
+      width: 220px;
+      min-height: 100vh;
+    }
+
+    .main-content {
+      flex: 1;
+      overflow-y: auto;
+    }
+
+    /* ── Bottom status bar ─────────────────────────── */
+    #status-bar {
+      position: fixed;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      height: 36px;
+      z-index: 1050;
+      font-size: .78rem;
+      border-top: 1px solid rgba(255, 255, 255, .1);
+      background: #111;
+    }
+
+    #status-bar.scanning {
+      border-top-color: #0dcaf0;
+    }
+
+    #status-bar.converting {
+      border-top-color: #ffc107;
+    }
+
+    #status-bar.error {
+      border-top-color: #dc3545;
+    }
+
+    #sb-scan-progress,
+    #sb-job-progress {
+      width: 130px;
+    }
+
+    .nav-link.active {
+      background: rgba(255, 255, 255, .1);
+      border-radius: .375rem;
+    }
+
+    /* ── Sortable / filterable column headers ── */
+    th[data-sort],
+    th[data-filter-col] {
+      cursor: pointer;
+      user-select: none;
+      white-space: nowrap;
+    }
+
+    th[data-sort]:hover,
+    th[data-filter-col]:hover {
+      background: rgba(255, 255, 255, .06);
+    }
+
+    th[data-sort] .sort-icon,
+    th[data-filter-col] .sort-icon {
+      opacity: .35;
+      font-size: .7em;
+      margin-left: .25rem;
+      vertical-align: middle;
+    }
+
+    th.sort-active .sort-icon {
+      opacity: 1;
+      color: #0dcaf0;
+    }
+
+    th.filter-active .sort-icon {
+      opacity: 1;
+      color: #fd7e14;
+    }
+
+    .codec-badge {
+      font-size: .75em;
+    }
+
+    .progress {
+      height: 6px;
+    }
+
+    #login-overlay {
+      position: fixed;
+      inset: 0;
+      z-index: 9999;
+      background: rgba(0, 0, 0, .85);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .status-pending {
+      color: #adb5bd;
+    }
+
+    .status-running {
+      color: #0dcaf0;
+    }
+
+    .status-completed {
+      color: #198754;
+    }
+
+    .status-failed {
+      color: #dc3545;
+    }
+
+    .status-cancelled {
+      color: #6c757d;
+    }
+  </style>
+</head>
+
+<body>
+
+  <!-- Login overlay -->
+  <div id="login-overlay">
+    <div class="card" style="width:340px">
+      <div class="card-body p-4">
+        <h5 class="card-title mb-3"><i class="bi bi-film me-2"></i>Media Encoding Tracker</h5>
+        <div id="login-error" class="alert alert-danger d-none"></div>
+        <div class="mb-3">
+          <label class="form-label">Username</label>
+          <input id="login-user" type="text" class="form-control" value="admin" aria-label="Username" />
+        </div>
+        <div class="mb-3">
+          <label class="form-label">Password</label>
+          <input id="login-pass" type="password" class="form-control" aria-label="Password" />
+        </div>
+        <button id="login-btn" class="btn btn-primary w-100">Sign in</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- App shell (hidden until logged in) -->
+  <div id="app-shell" class="d-flex d-none">
+
+    <div id="setup-overlay" class="position-fixed top-0 start-0 w-100 h-100 d-none" style="z-index: 9000; background: rgba(0,0,0,.9);">
+      <div class="container h-100 d-flex align-items-center justify-content-center">
+        <div class="card" style="max-width: 760px; width: 100%;">
+          <div class="card-body p-4">
+            <h4 class="mb-3"><i class="bi bi-shield-check me-2"></i>One-Time Setup Check</h4>
+            <p class="text-muted">This check verifies required conversion settings are configured in <code>docker-compose.yml</code>.</p>
+            <div id="setup-alert" class="alert d-none"></div>
+            <ul id="setup-checks" class="list-group mb-3"></ul>
+            <div class="d-flex justify-content-end gap-2">
+              <button id="setup-recheck-btn" class="btn btn-outline-secondary">Re-check</button>
+              <button id="setup-continue-btn" class="btn btn-primary" disabled>Continue</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Sidebar -->
+    <nav class="sidebar bg-dark border-end p-3 d-flex flex-column gap-1">
+      <div class="fw-bold mb-3 ps-1"><i class="bi bi-film me-2 text-primary"></i>MET</div>
+      <a href="#" class="nav-link text-white" data-page="dashboard"><i class="bi bi-speedometer2 me-2"></i>Dashboard</a>
+      <a href="#" class="nav-link text-white" data-page="files"><i class="bi bi-collection-play me-2"></i>Files</a>
+      <a href="#" class="nav-link text-white" data-page="queue"><i class="bi bi-list-task me-2"></i>Queue</a>
+      <a href="#" class="nav-link text-white" data-page="settings"><i class="bi bi-gear me-2"></i>Settings</a>
+      <div class="mt-auto">
+        <button id="logout-btn" class="btn btn-sm btn-outline-secondary w-100">
+          <i class="bi bi-box-arrow-left me-1"></i>Logout
+        </button>
+      </div>
+    </nav>
+
+    <!-- Content area -->
+    <div class="main-content p-4">
+
+      <!-- ── Dashboard ─────────────────────────────────────────────── -->
+      <div id="page-dashboard" class="page d-none">
+        <h4 class="mb-4"><i class="bi bi-speedometer2 me-2"></i>Dashboard</h4>
+        <div class="row g-3 mb-4" id="stat-cards"></div>
+        <div class="row g-4">
+          <div class="col-md-5">
+            <div class="card">
+              <div class="card-header">Files by codec</div>
+              <div class="card-body"><canvas id="chart-codec" height="220"></canvas></div>
+            </div>
+          </div>
+          <div class="col-md-7">
+            <div class="card">
+              <div class="card-header">Storage by codec</div>
+              <div class="card-body"><canvas id="chart-storage" height="220"></canvas></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ── Files ─────────────────────────────────────────────────── -->
+      <div id="page-files" class="page d-none">
+        <div class="d-flex align-items-center gap-3 mb-4 flex-wrap">
+          <h4 class="mb-0"><i class="bi bi-collection-play me-2"></i>Files</h4>
+          <select id="filter-codec" class="form-select form-select-sm" style="width:180px">
+            <option value="">All codecs</option>
+          </select>
+          <select id="filter-missing" class="form-select form-select-sm" style="width:180px">
+            <option value="all">All file statuses</option>
+            <option value="ok">Present only</option>
+            <option value="missing">Missing only</option>
+          </select>
+          <button id="convert-selected-btn" class="btn btn-sm btn-primary ms-auto" disabled>
+            <i class="bi bi-arrow-repeat me-1"></i>Convert selected
+          </button>
+          <button id="scan-btn" class="btn btn-sm btn-outline-secondary">
+            <i class="bi bi-search me-1"></i>Scan now
+          </button>
+        </div>
+        <div id="files-alert" class="alert d-none"></div>
+        <div class="table-responsive">
+          <table class="table table-hover align-middle">
+            <thead id="files-thead">
+              <tr>
+                <th style="width:2rem"><input type="checkbox" id="select-all" class="form-check-input" aria-label="Select all files" /></th>
+                <th data-sort="filename">Filename <i class="bi bi-arrow-down-up sort-icon"></i></th>
+                <th data-sort="video_codec" data-filter-col="codec">Codec</th>
+                <th data-sort="width">Resolution <i class="bi bi-arrow-down-up sort-icon"></i></th>
+                <th data-sort="duration_seconds">Duration <i class="bi bi-arrow-down-up sort-icon"></i></th>
+                <th data-sort="size_bytes">Size <i class="bi bi-arrow-down-up sort-icon"></i></th>
+                <th data-filter-col="missing">Status</th>
+              </tr>
+            </thead>
+            <tbody id="files-tbody"></tbody>
+          </table>
+        </div>
+        <nav id="files-pagination"></nav>
+      </div>
+
+      <!-- ── Queue ─────────────────────────────────────────────────── -->
+      <div id="page-queue" class="page d-none">
+        <div class="d-flex align-items-center gap-3 mb-4">
+          <h4 class="mb-0"><i class="bi bi-list-task me-2"></i>Conversion Queue</h4>
+          <select id="filter-status" class="form-select form-select-sm ms-auto" style="width:180px">
+            <option value="">All statuses</option>
+            <option value="pending">pending</option>
+            <option value="running">running</option>
+            <option value="completed">completed</option>
+            <option value="failed">failed</option>
+            <option value="cancelled">cancelled</option>
+          </select>
+        </div>
+        <div class="table-responsive">
+          <table class="table table-hover align-middle">
+            <thead id="queue-thead">
+              <tr>
+                <th data-sort="id">ID <i class="bi bi-arrow-down-up sort-icon"></i></th>
+                <th>File</th>
+                <th data-sort="quality">Quality <i class="bi bi-arrow-down-up sort-icon"></i></th>
+                <th data-sort="status" data-filter-col="status">Status</th>
+                <th data-sort="progress">Progress <i class="bi bi-arrow-down-up sort-icon"></i></th>
+                <th data-sort="started_at">Started <i class="bi bi-arrow-down-up sort-icon"></i></th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody id="queue-tbody"></tbody>
+          </table>
+        </div>
+        <nav id="queue-pagination"></nav>
+      </div>
+
+      <!-- ── Settings ──────────────────────────────────────────────── -->
+      <div id="page-settings" class="page d-none">
+        <h4 class="mb-4"><i class="bi bi-gear me-2"></i>Settings</h4>
+        <div class="alert alert-secondary">Settings are read-only in the UI and are controlled via <code>docker-compose.yml</code>.</div>
+        <div class="row g-4">
+          <div class="col-lg-6">
+            <div class="card">
+              <div class="card-header">Scanning</div>
+              <div class="card-body">
+                <div class="mb-2"><span class="text-muted">Auto scan enabled:</span> <span id="s-scan-enabled" class="fw-semibold"></span></div>
+                <div class="mb-3"><span class="text-muted">Scan schedule:</span> <code id="s-scan-cron" class="ms-1"></code></div>
+                <button id="scan-now-btn" class="btn btn-sm btn-outline-primary">
+                  <i class="bi bi-search me-1"></i>Scan now
+                </button>
+                <span id="scan-result" class="ms-2 small text-success d-none"></span>
+              </div>
+            </div>
+          </div>
+          <div class="col-lg-6">
+            <div class="card">
+              <div class="card-header">Conversion</div>
+              <div class="card-body">
+                <div class="mb-2"><span class="text-muted">Auto convert enabled:</span> <span id="s-auto-convert" class="fw-semibold"></span></div>
+                <div class="mb-2"><span class="text-muted">Convert schedule:</span> <code id="s-convert-cron" class="ms-1"></code></div>
+                <div class="mb-2"><span class="text-muted">Quality:</span> <span id="s-quality" class="fw-semibold"></span></div>
+                <div class="mb-2"><span class="text-muted">Delete original after conversion:</span> <span id="s-delete-orig" class="fw-semibold"></span></div>
+                <div class="mb-3">
+                  <label class="form-label d-block mb-1">Destination codec (convert to this codec)</label>
+                  <div id="destination-codec-box"></div>
+                </div>
+                <div class="mb-3">
+                  <label class="form-label d-block mb-1">Source codecs (convert from these codecs)</label>
+                  <div id="source-codecs-box" class="d-flex flex-wrap gap-2"></div>
+                </div>
+                <button id="convert-now-btn" class="btn btn-sm btn-outline-primary">
+                  <i class="bi bi-arrow-repeat me-1"></i>Convert now
+                </button>
+                <span id="convert-result" class="ms-2 small text-success d-none"></span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </div><!-- /main-content -->
+  </div><!-- /app-shell -->
+
+  <!-- ── Bottom status bar (always visible) ───────────────────────────── -->
+  <div id="status-bar" class="d-flex align-items-center gap-3 px-3 text-muted">
+
+    <!-- Scan section -->
+    <span id="sb-scan-icon"><i class="bi bi-dash-circle" style="font-size:.7rem"></i></span>
+    <span id="sb-scan-text">No scan yet</span>
+    <div id="sb-scan-progress" class="d-none" style="display:flex;align-items:center;gap:.5rem">
+      <div class="progress" style="height:5px;width:130px">
+        <div id="sb-scan-bar" class="progress-bar progress-bar-striped progress-bar-animated bg-info" style="width:0%"></div>
+      </div>
+      <span id="sb-scan-pct" class="text-info" style="min-width:2.5em;text-align:right">0%</span>
+    </div>
+
+    <span class="text-secondary" aria-hidden="true">│</span>
+
+    <!-- Worker section -->
+    <span id="sb-worker-icon"><i class="bi bi-cpu" style="font-size:.7rem"></i></span>
+    <span id="sb-worker-text">Idle</span>
+    <div id="sb-job-progress" class="d-none" style="display:flex;align-items:center;gap:.5rem">
+      <div class="progress" style="height:5px;width:130px">
+        <div id="sb-job-bar" class="progress-bar progress-bar-striped progress-bar-animated bg-warning" style="width:0%"></div>
+      </div>
+      <span id="sb-job-pct" class="text-warning" style="min-width:2.5em;text-align:right">0%</span>
+    </div>
+
+    <!-- SSE connection dot -->
+    <span id="sb-conn" class="ms-auto me-1" title="Live updates">
+      <i class="bi bi-circle-fill text-secondary" style="font-size:.45rem"></i>
+    </span>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+  <script src="/static/app.js"></script>
+</body>
+
+</html>

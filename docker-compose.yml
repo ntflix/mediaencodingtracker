@@ -1,0 +1,47 @@
+services:
+  tracker:
+    build: .
+    container_name: media-encoding-tracker
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    volumes:
+      # Persistent database storage
+      - tracker-data:/data
+      # Your SMB share — already mounted on the host.
+      # Change the left-hand path to wherever your share is mounted.
+      - /Volumes/glass/media/movies:/media:rw
+    environment:
+      # ── Paths (must match volume mounts above) ──
+      MEDIA_ROOT: /media
+      DB_PATH:    /data/tracker.db
+
+      # ── Authentication ──────────────────────────
+      ADMIN_USER: admin
+      ADMIN_PASS: changeme   # CHANGE THIS!
+
+      # ── Server ──────────────────────────────────
+      HOST:      0.0.0.0
+      PORT:      8000
+      LOG_LEVEL: info
+
+      # ── Runtime behavior (UI is read-only; edit these here) ──
+      AUTO_SCAN_ENABLED: true
+      SCAN_SCHEDULE: "0 */6 * * *"
+      AUTO_CONVERT_ENABLED: false
+      CONVERT_SCHEDULE: "0 2 * * *"
+      DEFAULT_QUALITY: medium
+      DELETE_ORIGINAL_AFTER_CONVERT: false
+      DESTINATION_CODEC: h264
+      SOURCE_CODECS: hevc,vp9,av1,mpeg4
+      COMPOSE_FILE_PATH: /app/docker-compose.yml
+
+# Optional: grant access to V4L2 devices for hardware-accelerated encoding.
+# See README § Hardware Acceleration before enabling.
+# devices:
+#   - /dev/video10:/dev/video10
+#   - /dev/video11:/dev/video11
+#   - /dev/video12:/dev/video12
+
+volumes:
+  tracker-data:
