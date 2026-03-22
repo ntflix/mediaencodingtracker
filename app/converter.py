@@ -16,6 +16,7 @@ logger = logging.getLogger(__name__)
 _TIME_RE = re.compile(r"time=(\d{2}):(\d{2}):(\d{2})\.(\d{2})")
 _V4L2_INIT_ERROR_RE = re.compile(
     r"(h264_v4l2m2m.*(could not find a valid device|can't configure encoder))"
+    r"|(encoder requires yuv420p pixel format)"
     r"|(error while opening encoder for output stream)",
     re.IGNORECASE,
 )
@@ -142,10 +143,20 @@ async def convert_file(
     video_args: list[str]
     if use_v4l2_h264:
         # V4L2 M2M uses bitrate-based control rather than CRF.
-        video_args = ["-c:v", "h264_v4l2m2m", "-b:v", "4M"]
+        video_args = [
+            "-c:v",
+            "h264_v4l2m2m",
+            "-pix_fmt",
+            "yuv420p",
+            "-b:v",
+            "4M",
+        ]
         logger.info("Using V4L2 H.264 hardware encoder (h264_v4l2m2m)")
         if on_log is not None:
-            await on_log(f"Using V4L2 H.264 encoder: {v4l2_detail}")
+            await on_log(
+                "Using V4L2 H.264 encoder (h264_v4l2m2m, pix_fmt=yuv420p): "
+                + v4l2_detail
+            )
     else:
         video_args = [
             "-c:v",
