@@ -6,9 +6,10 @@ import logging
 from contextlib import asynccontextmanager
 from collections.abc import AsyncIterator
 from pathlib import Path
+from functools import lru_cache
 
 from fastapi import FastAPI, Request
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from app.app_state import AppState
@@ -33,6 +34,20 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 _STATIC_DIR = Path(__file__).parent / "static"
+_INDEX_HTML = _STATIC_DIR / "index.html"
+_APP_JS = _STATIC_DIR / "app.js"
+
+
+@lru_cache(maxsize=1)
+def _index_template() -> str:
+    return _INDEX_HTML.read_text(encoding="utf-8")
+
+
+def _app_js_version() -> str:
+    try:
+        return str(_APP_JS.stat().st_mtime_ns)
+    except FileNotFoundError:
+        return "0"
 
 
 @asynccontextmanager
@@ -112,8 +127,12 @@ def create_app() -> FastAPI:
     app.mount("/static", StaticFiles(directory=str(_STATIC_DIR)), name="static")
 
     @app.get("/", include_in_schema=False)
-    async def serve_ui() -> FileResponse:
-        return FileResponse(_STATIC_DIR / "index.html")
+    async def serve_ui() -> HTMLResponse:
+        html = _index_template().replace("__APP_JS_VERSION__", _app_js_version())
+        return HTMLResponse(
+            content=html,
+            headers={"Cache-Control": "no-store, max-age=0"},
+        )
 
     return app
 

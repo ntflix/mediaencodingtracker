@@ -54,7 +54,7 @@ volumes:
 ### 3. Run
 
 ```bash
-docker compose up -d
+docker compose up -d --build
 ```
 
 Open **http://\<rpi-ip\>:8000** in a browser, sign in with `ADMIN_USER` /
