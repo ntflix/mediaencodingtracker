@@ -7,11 +7,12 @@ from contextlib import asynccontextmanager
 from collections.abc import AsyncIterator
 from pathlib import Path
 
-from fastapi import FastAPI
-from fastapi.responses import FileResponse
+from fastapi import FastAPI, Request
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from app.app_state import AppState
+from app.auth import is_authorized
 from app.config import get_config
 from app.converter import is_v4l2_h264_available
 from app.database import close_db, get_session_factory, init_db
@@ -86,7 +87,20 @@ def create_app() -> FastAPI:
         lifespan=lifespan,
         docs_url="/api/docs",
         redoc_url="/api/redoc",
+        openapi_url="/api/openapi.json",
     )
+
+    @app.middleware("http")
+    async def enforce_api_auth(request: Request, call_next):
+        if request.url.path.startswith("/api"):
+            config = request.app.state.config
+            if not is_authorized(request.headers.get("Authorization"), config):
+                return JSONResponse(
+                    status_code=401,
+                    content={"detail": "Invalid credentials"},
+                    headers={"WWW-Authenticate": "Basic"},
+                )
+        return await call_next(request)
 
     app.include_router(files.router)
     app.include_router(jobs.router)

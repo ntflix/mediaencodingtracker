@@ -51,6 +51,18 @@ async def test_wrong_password_returns_401(client: AsyncClient) -> None:
     assert res.status_code == 401
 
 
+@pytest.mark.asyncio
+async def test_api_docs_require_auth(client: AsyncClient) -> None:
+    res = await client.get("/api/docs")
+    assert res.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_openapi_requires_auth(client: AsyncClient) -> None:
+    res = await client.get("/api/openapi.json")
+    assert res.status_code == 401
+
+
 # ---------------------------------------------------------------------------
 # Stats
 # ---------------------------------------------------------------------------
