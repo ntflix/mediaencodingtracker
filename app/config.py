@@ -62,6 +62,16 @@ class Config(BaseSettings):
         default="ffmpeg",
         description="Path to ffmpeg executable inside the container.",
     )
+    lower_target_resolution_on_v4l2_fail: bool = Field(
+        default=True,
+        description=(
+            "When V4L2 H.264 encoder fails at runtime, retry with lower output resolutions."
+        ),
+    )
+    min_target_resolution: int = Field(
+        default=480,
+        description="Minimum output height used for V4L2 retry downscaling ladder.",
+    )
 
     # Optional: path to docker-compose used for setup validation checks.
     compose_file_path: Path = Field(default=Path("/app/docker-compose.yml"))
@@ -90,6 +100,13 @@ class Config(BaseSettings):
     def _normalize_ffmpeg_bin(cls, value: object) -> object:
         if isinstance(value, str):
             return value.strip()
+        return value
+
+    @field_validator("min_target_resolution")
+    @classmethod
+    def _validate_min_target_resolution(cls, value: int) -> int:
+        if value <= 0:
+            raise ValueError("min_target_resolution must be > 0")
         return value
 
 

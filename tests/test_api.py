@@ -221,6 +221,8 @@ async def test_get_settings(client: AsyncClient) -> None:
     assert "destination_codec" in data
     assert "source_codecs" in data
     assert "ffmpeg_bin" in data
+    assert "lower_target_resolution_on_v4l2_fail" in data
+    assert "min_target_resolution" in data
 
 
 @pytest.mark.asyncio

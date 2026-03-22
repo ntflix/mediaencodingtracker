@@ -111,6 +111,8 @@ class UserSettingsOut(BaseModel):
     destination_codec: str
     source_codecs: list[str]
     ffmpeg_bin: str
+    lower_target_resolution_on_v4l2_fail: bool
+    min_target_resolution: int
 
 
 class SetupCheckItem(BaseModel):

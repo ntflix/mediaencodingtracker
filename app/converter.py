@@ -20,6 +20,11 @@ _V4L2_INIT_ERROR_RE = re.compile(
     r"|(error while opening encoder for output stream)",
     re.IGNORECASE,
 )
+_V4L2_STREAMON_ERROR_RE = re.compile(
+    r"(vidioc_streamon failed on output context)|(error submitting video frame to the encoder)",
+    re.IGNORECASE,
+)
+_RESOLUTION_LADDER = [4320, 2160, 1440, 1080, 720, 480]
 
 # Callable that receives a progress float in [0, 1].
 type ProgressCallback = Callable[[float], Awaitable[None]]
@@ -103,6 +108,19 @@ def is_v4l2_h264_available() -> bool:
     return ready
 
 
+def _resolution_retry_steps(
+    source_height: int | None,
+    min_target_resolution: int,
+) -> list[int]:
+    if source_height is None or source_height <= 0:
+        return []
+    return [
+        h
+        for h in _RESOLUTION_LADDER
+        if h < source_height and h >= min_target_resolution
+    ]
+
+
 async def convert_file(
     input_path: Path,
     crf: int,
@@ -112,6 +130,9 @@ async def convert_file(
     cancel_event: asyncio.Event,
     duration_seconds: float | None = None,
     on_log: LogCallback | None = None,
+    lower_target_resolution_on_v4l2_fail: bool = True,
+    min_target_resolution: int = 480,
+    source_height: int | None = None,
 ) -> ConversionResult:
     """Convert *input_path* to the configured codec profile with the given CRF.
 
@@ -256,8 +277,36 @@ async def convert_file(
         return first_result
 
     error_text = first_result.error or ""
+
+    if (
+        lower_target_resolution_on_v4l2_fail
+        and _V4L2_STREAMON_ERROR_RE.search(error_text)
+        and source_height is not None
+    ):
+        steps = _resolution_retry_steps(source_height, min_target_resolution)
+        for target_height in steps:
+            if on_log is not None:
+                await on_log(
+                    "V4L2 stream start failed; retrying with downscaled target "
+                    f"height {target_height}p"
+                )
+            scaled_args = [
+                "-vf",
+                f"scale=-2:{target_height}",
+                "-c:v",
+                "h264_v4l2m2m",
+                "-pix_fmt",
+                "yuv420p",
+                "-b:v",
+                "4M",
+            ]
+            retry = await _run_once(scaled_args)
+            if retry.success or cancel_event.is_set():
+                return retry
+            error_text = retry.error or error_text
+
     if not _V4L2_INIT_ERROR_RE.search(error_text):
-        return first_result
+        return ConversionResult(success=False, output_path=None, error=error_text)
 
     if on_log is not None:
         await on_log(

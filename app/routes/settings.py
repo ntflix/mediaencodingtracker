@@ -45,6 +45,8 @@ async def get_settings(
         destination_codec=config.destination_codec,
         source_codecs=config.source_codecs,
         ffmpeg_bin=config.ffmpeg_bin,
+        lower_target_resolution_on_v4l2_fail=config.lower_target_resolution_on_v4l2_fail,
+        min_target_resolution=config.min_target_resolution,
     )
 
 
@@ -103,6 +105,8 @@ def _build_setup_checks(config: Config) -> list[SetupCheckItem]:
         "DELETE_ORIGINAL_AFTER_CONVERT",
         "DESTINATION_CODEC",
         "SOURCE_CODECS",
+        "LOWER_TARGET_RESOLUTION_ON_V4L2_FAIL",
+        "MIN_TARGET_RESOLUTION",
     ]
 
     checks: list[SetupCheckItem] = []

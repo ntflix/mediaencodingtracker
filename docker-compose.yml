@@ -40,6 +40,8 @@ services:
       # Example when using the optional /opt/homebrew/bin mount above:
       # FFMPEG_BIN: /host-bin/ffmpeg
       FFMPEG_BIN: ffmpeg
+      LOWER_TARGET_RESOLUTION_ON_V4L2_FAIL: true
+      MIN_TARGET_RESOLUTION: 480
       COMPOSE_FILE_PATH: /app/docker-compose.yml
 
 # Optional: grant access to V4L2 devices for hardware-accelerated encoding.

@@ -78,18 +78,20 @@ All settings are environment variables (or `.env` file entries):
 
 Compose-controlled runtime settings (shown read-only in the Settings page):
 
-| Variable                        | Default                   | Description                                                |
-| ------------------------------- | ------------------------- | ---------------------------------------------------------- |
-| `AUTO_SCAN_ENABLED`             | `true`                    | Enable scheduled scans                                     |
-| `SCAN_SCHEDULE`                 | `0 */6 * * *`             | Cron expression for automatic directory scans              |
-| `AUTO_CONVERT_ENABLED`          | `false`                   | Enable scheduled auto-convert enqueueing                   |
-| `CONVERT_SCHEDULE`              | `0 2 * * *`               | Cron for auto-conversion                                   |
-| `DEFAULT_QUALITY`               | `medium`                  | Quality profile used for queued conversions                |
-| `DELETE_ORIGINAL_AFTER_CONVERT` | `false`                   | Delete source file after successful conversion             |
-| `DESTINATION_CODEC`             | `h264`                    | Destination codec to convert to                            |
-| `SOURCE_CODECS`                 | `hevc,vp9,av1,mpeg4`      | Source codecs to convert from                              |
-| `FFMPEG_BIN`                    | `ffmpeg`                  | ffmpeg executable path inside the container                |
-| `COMPOSE_FILE_PATH`             | `/app/docker-compose.yml` | Compose file path used by one-time setup validation screen |
+| Variable                               | Default                   | Description                                                                 |
+| -------------------------------------- | ------------------------- | --------------------------------------------------------------------------- |
+| `AUTO_SCAN_ENABLED`                    | `true`                    | Enable scheduled scans                                                      |
+| `SCAN_SCHEDULE`                        | `0 */6 * * *`             | Cron expression for automatic directory scans                               |
+| `AUTO_CONVERT_ENABLED`                 | `false`                   | Enable scheduled auto-convert enqueueing                                    |
+| `CONVERT_SCHEDULE`                     | `0 2 * * *`               | Cron for auto-conversion                                                    |
+| `DEFAULT_QUALITY`                      | `medium`                  | Quality profile used for queued conversions                                 |
+| `DELETE_ORIGINAL_AFTER_CONVERT`        | `false`                   | Delete source file after successful conversion                              |
+| `DESTINATION_CODEC`                    | `h264`                    | Destination codec to convert to                                             |
+| `SOURCE_CODECS`                        | `hevc,vp9,av1,mpeg4`      | Source codecs to convert from                                               |
+| `FFMPEG_BIN`                           | `ffmpeg`                  | ffmpeg executable path inside the container                                 |
+| `LOWER_TARGET_RESOLUTION_ON_V4L2_FAIL` | `true`                    | Retry V4L2 H.264 with lower target resolutions on `VIDIOC_STREAMON` failure |
+| `MIN_TARGET_RESOLUTION`                | `480`                     | Lowest target output height allowed during V4L2 retry ladder                |
+| `COMPOSE_FILE_PATH`                    | `/app/docker-compose.yml` | Compose file path used by one-time setup validation screen                  |
 
 If you want to run a host-provided ffmpeg binary, bind-mount it and set `FFMPEG_BIN` to the in-container path:
 

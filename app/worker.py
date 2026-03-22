@@ -151,6 +151,7 @@ class ConversionWorker:
         cancel_event = self._cancel_events.get(job_id, asyncio.Event())
         crf = CRF_MAP[Quality(job.quality)]
         duration = media_file.duration_seconds
+        source_height = media_file.height
         self._append_job_log(job_id, f"Using ffmpeg binary: {self._config.ffmpeg_bin}")
 
         async def on_progress(progress: float) -> None:
@@ -175,6 +176,9 @@ class ConversionWorker:
             cancel_event=cancel_event,
             duration_seconds=duration,
             on_log=on_log,
+            lower_target_resolution_on_v4l2_fail=self._config.lower_target_resolution_on_v4l2_fail,
+            min_target_resolution=self._config.min_target_resolution,
+            source_height=source_height,
         )
 
         # ------ persist outcome -----------------------------------------

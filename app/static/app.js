@@ -518,6 +518,8 @@ async function loadSettings() {
         .join('');
 
     document.getElementById('s-ffmpeg-bin').textContent = s.ffmpeg_bin;
+    document.getElementById('s-v4l2-downscale').textContent = s.lower_target_resolution_on_v4l2_fail ? 'yes' : 'no';
+    document.getElementById('s-min-target-res').textContent = `${s.min_target_resolution}p`;
 }
 
 async function runSetupCheck() {
