@@ -145,6 +145,10 @@
       font-size: .86rem;
       line-height: 1.35;
     }
+
+    .folder-name {
+      word-break: break-all;
+    }
   </style>
 </head>
 
@@ -238,6 +242,9 @@
             <option value="ok">Present only</option>
             <option value="missing">Missing only</option>
           </select>
+          <button id="files-view-toggle-btn" class="btn btn-sm btn-outline-info" type="button">
+            <i class="bi bi-folder2-open me-1"></i>Folder view
+          </button>
           <button id="convert-selected-btn" class="btn btn-sm btn-primary ms-auto" disabled>
             <i class="bi bi-arrow-repeat me-1"></i>Convert selected
           </button>
@@ -247,7 +254,7 @@
         </div>
         <div id="files-alert" class="alert d-none"></div>
         <div class="table-responsive">
-          <table class="table table-hover align-middle">
+          <table id="files-table" class="table table-hover align-middle">
             <thead id="files-thead">
               <tr>
                 <th style="width:2rem"><input type="checkbox" id="select-all" class="form-check-input" aria-label="Select all files" /></th>
@@ -262,6 +269,7 @@
             <tbody id="files-tbody"></tbody>
           </table>
         </div>
+        <div id="files-folder-view" class="d-none"></div>
         <nav id="files-pagination"></nav>
       </div>
 

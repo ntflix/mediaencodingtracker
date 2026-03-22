@@ -18,6 +18,7 @@ let _filesMissing = 'all';
 let _filesSortBy = 'filename';
 let _filesSortDir = 'asc';
 let _allCodecs = [];
+let _filesViewMode = 'table';
 
 let _queuePage = 1;
 let _queuePerPage = 50;
@@ -35,6 +36,15 @@ const CODEC_COLORS = {
 };
 
 function codecColor(c) { return CODEC_COLORS[c] || '#6c757d'; }
+
+function escapeHtml(text) {
+    return String(text)
+        .replaceAll('&', '&amp;')
+        .replaceAll('<', '&lt;')
+        .replaceAll('>', '&gt;')
+        .replaceAll('"', '&quot;')
+        .replaceAll("'", '&#039;');
+}
 
 function setCredentials(user, pass) {
     _authHeader = 'Basic ' + btoa(`${user}:${pass}`);
@@ -192,20 +202,25 @@ async function loadFiles(page, silent = false) {
     _filesCodec = document.getElementById('filter-codec').value;
     _filesMissing = document.getElementById('filter-missing').value;
 
-    const qs = new URLSearchParams({
-        page: String(_filesPage),
-        per_page: String(_filesPerPage),
-        sort_by: _filesSortBy,
-        sort_dir: _filesSortDir,
-    });
-
-    if (_filesCodec) qs.set('codec', _filesCodec);
-    if (_filesMissing === 'ok') qs.set('missing', 'false');
-    if (_filesMissing === 'missing') qs.set('missing', 'true');
-
     let data;
+    let truncated = false;
     try {
-        data = await get(`/api/files?${qs}`);
+        if (_filesViewMode === 'folder') {
+            const all = await fetchFolderViewFiles();
+            data = { items: all.items, total: all.total, page: 1, per_page: all.items.length || 1 };
+            truncated = all.truncated;
+        } else {
+            const qs = new URLSearchParams({
+                page: String(_filesPage),
+                per_page: String(_filesPerPage),
+                sort_by: _filesSortBy,
+                sort_dir: _filesSortDir,
+            });
+            if (_filesCodec) qs.set('codec', _filesCodec);
+            if (_filesMissing === 'ok') qs.set('missing', 'false');
+            if (_filesMissing === 'missing') qs.set('missing', 'true');
+            data = await get(`/api/files?${qs}`);
+        }
     } catch (e) {
         if (!silent) showAlert('files-alert', 'danger', e.message);
         return;
@@ -223,8 +238,57 @@ async function loadFiles(page, silent = false) {
         });
     }
 
+    if (_filesViewMode === 'folder') {
+        renderFilesFolderView(data.items, data.total, truncated);
+    } else {
+        renderFilesTableView(data.items);
+        renderPagination('files-pagination', data.total, _filesPage, _filesPerPage, loadFiles);
+        syncSortHeaderState('files-thead', _filesSortBy, _filesSortDir, _filesCodec || _filesMissing !== 'all');
+    }
+
+    updateConvertBtn();
+}
+
+async function fetchFolderViewFiles() {
+    const pageSize = 500;
+    const maxItems = 5000;
+
+    const items = [];
+    let total = 0;
+    let page = 1;
+
+    while (items.length < maxItems) {
+        const qs = new URLSearchParams({
+            page: String(page),
+            per_page: String(pageSize),
+            sort_by: 'filename',
+            sort_dir: 'asc',
+        });
+        if (_filesCodec) qs.set('codec', _filesCodec);
+        if (_filesMissing === 'ok') qs.set('missing', 'false');
+        if (_filesMissing === 'missing') qs.set('missing', 'true');
+
+        const data = await get(`/api/files?${qs}`);
+        total = data.total;
+        items.push(...data.items);
+
+        if (items.length >= total || data.items.length === 0) break;
+        page += 1;
+    }
+
+    return {
+        items: items.slice(0, maxItems),
+        total,
+        truncated: total > maxItems,
+    };
+}
+
+function renderFilesTableView(items) {
+    document.getElementById('files-table').classList.remove('d-none');
+    document.getElementById('files-folder-view').classList.add('d-none');
+
     const tbody = document.getElementById('files-tbody');
-    tbody.innerHTML = data.items.map(f => `
+    tbody.innerHTML = items.map(f => `
     <tr>
       <td><input type="checkbox" class="form-check-input file-check" data-id="${f.id}" /></td>
       <td class="text-break" style="max-width:300px" title="${f.path}">${f.filename}</td>
@@ -235,10 +299,82 @@ async function loadFiles(page, silent = false) {
       <td>${f.is_missing ? '<span class="badge bg-danger">missing</span>' : '<span class="badge bg-success">ok</span>'}</td>
     </tr>
   `).join('');
+}
 
-    renderPagination('files-pagination', data.total, _filesPage, _filesPerPage, loadFiles);
-    updateConvertBtn();
-    syncSortHeaderState('files-thead', _filesSortBy, _filesSortDir, _filesCodec || _filesMissing !== 'all');
+function renderFilesFolderView(items, total, truncated) {
+    document.getElementById('files-table').classList.add('d-none');
+    document.getElementById('files-folder-view').classList.remove('d-none');
+    document.getElementById('files-pagination').innerHTML = '';
+
+    const groups = new Map();
+    for (const file of items) {
+        const idx = file.path.lastIndexOf('/');
+        const folder = idx >= 0 ? file.path.slice(0, idx) : '/';
+        if (!groups.has(folder)) groups.set(folder, []);
+        groups.get(folder).push(file);
+    }
+
+    const folders = [...groups.keys()].sort((a, b) => a.localeCompare(b));
+    const root = document.getElementById('files-folder-view');
+    const warn = truncated
+        ? `<div class="alert alert-warning py-2 px-3 mb-3">Folder view loaded first 5000 of ${total} matching files. Narrow filters to see all.</div>`
+        : '';
+
+    root.innerHTML = `
+        ${warn}
+        <div class="accordion" id="folder-accordion">
+            ${folders.map((folder, i) => {
+        const files = groups.get(folder);
+        const presentCount = files.filter(f => !f.is_missing).length;
+        const totalBytes = files.reduce((sum, f) => sum + f.size_bytes, 0);
+        const collapseId = `folder-collapse-${i}`;
+        const headingId = `folder-heading-${i}`;
+
+        return `
+                <div class="accordion-item mb-2 rounded overflow-hidden border-secondary-subtle">
+                    <h2 class="accordion-header" id="${headingId}">
+                        <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#${collapseId}" aria-expanded="false" aria-controls="${collapseId}">
+                            <input type="checkbox" class="form-check-input me-3 folder-check" onclick="event.stopPropagation()" aria-label="Select folder ${escapeHtml(folder)}" />
+                            <i class="bi bi-folder2-open me-2 text-warning"></i>
+                            <span class="folder-name fw-semibold" title="${escapeHtml(folder)}">${escapeHtml(folder)}</span>
+                            <span class="ms-3 small text-muted">${files.length} file(s), ${presentCount} present, ${formatBytes(totalBytes)}</span>
+                        </button>
+                    </h2>
+                    <div id="${collapseId}" class="accordion-collapse collapse" aria-labelledby="${headingId}" data-bs-parent="#folder-accordion">
+                        <div class="accordion-body p-0">
+                            <div class="table-responsive">
+                                <table class="table table-sm table-hover align-middle mb-0">
+                                    <thead>
+                                        <tr>
+                                            <th style="width:2rem"></th>
+                                            <th>Filename</th>
+                                            <th>Codec</th>
+                                            <th>Resolution</th>
+                                            <th>Duration</th>
+                                            <th>Size</th>
+                                            <th>Status</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        ${files.map(f => `
+                                            <tr>
+                                                <td><input type="checkbox" class="form-check-input file-check" data-id="${f.id}" /></td>
+                                                <td class="text-break" title="${escapeHtml(f.path)}">${escapeHtml(f.filename)}</td>
+                                                <td><span class="badge codec-badge" style="background:${codecColor(f.video_codec)}">${escapeHtml(f.video_codec)}</span></td>
+                                                <td>${f.width && f.height ? `${f.width}x${f.height}` : '-'}</td>
+                                                <td>${f.duration_seconds ? fmtDur(f.duration_seconds) : '-'}</td>
+                                                <td>${formatBytes(f.size_bytes)}</td>
+                                                <td>${f.is_missing ? '<span class="badge bg-danger">missing</span>' : '<span class="badge bg-success">ok</span>'}</td>
+                                            </tr>
+                                        `).join('')}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                </div>`;
+    }).join('')}
+        </div>`;
 }
 
 function updateConvertBtn() {
@@ -270,7 +406,7 @@ async function loadQueue(page, silent = false) {
 
     const tbody = document.getElementById('queue-tbody');
     tbody.innerHTML = data.items.map(j => `
-        <tr class="queue-row" data-job-id="${j.id}" data-job-status="${j.status}">
+        <tr class="queue-row" data-job-id="${j.id}" data-job-status="${j.status}" onclick="openJobLogModal(${j.id})">
             <td>${j.id}</td>
             <td class="text-break" style="max-width:260px">${j.media_file ? j.media_file.filename : j.media_file_id}</td>
             <td>${j.quality}</td>
@@ -283,8 +419,8 @@ async function loadQueue(page, silent = false) {
             <td>${j.started_at ? new Date(j.started_at).toLocaleString() : '-'}</td>
             <td>
                 ${['pending', 'running'].includes(j.status)
-            ? `<button class="btn btn-xs btn-sm btn-outline-warning queue-action" onclick="cancelJob(${j.id})"><i class="bi bi-stop-circle"></i></button>`
-            : `<button class="btn btn-xs btn-sm btn-outline-danger queue-action" onclick="deleteJob(${j.id})"><i class="bi bi-trash"></i></button>`}
+            ? `<button class="btn btn-xs btn-sm btn-outline-warning queue-action" onclick="event.stopPropagation();cancelJob(${j.id})"><i class="bi bi-stop-circle"></i></button>`
+            : `<button class="btn btn-xs btn-sm btn-outline-danger queue-action" onclick="event.stopPropagation();deleteJob(${j.id})"><i class="bi bi-trash"></i></button>`}
             </td>
         </tr>
     `).join('');
@@ -343,7 +479,17 @@ async function refreshJobLogModal(jobId) {
 }
 
 async function openJobLogModal(jobId) {
-    if (!_jobLogModal) return;
+    if (!_jobLogModal) {
+        const modalEl = document.getElementById('job-log-modal');
+        const bs = globalThis.bootstrap;
+        if (modalEl && bs && bs.Modal) {
+            _jobLogModal = new bs.Modal(modalEl);
+        }
+    }
+    if (!_jobLogModal) {
+        alert('Unable to open FFmpeg log viewer (Bootstrap modal not available).');
+        return;
+    }
     _activeLogJobId = jobId;
     stopJobLogRefresh();
     document.getElementById('job-log-content').textContent = 'Loading ffmpeg logs...';
@@ -543,6 +689,7 @@ async function deleteJob(id) {
 
 window.cancelJob = cancelJob;
 window.deleteJob = deleteJob;
+window.openJobLogModal = openJobLogModal;
 
 function startSSE() {
     if (_sseAbort) _sseAbort.abort();
@@ -740,11 +887,25 @@ document.getElementById('select-all').addEventListener('change', e => {
 
 document.getElementById('files-tbody').addEventListener('change', () => updateConvertBtn());
 
-document.getElementById('queue-tbody').addEventListener('click', e => {
-    if (e.target.closest('.queue-action')) return;
-    const row = e.target.closest('tr.queue-row');
-    if (!row) return;
-    openJobLogModal(+row.dataset.jobId);
+document.getElementById('files-folder-view').addEventListener('change', e => {
+    const target = e.target;
+    if (target.classList.contains('folder-check')) {
+        const card = target.closest('.accordion-item');
+        if (!card) return;
+        card.querySelectorAll('.file-check').forEach(cb => {
+            cb.checked = target.checked;
+        });
+    }
+    updateConvertBtn();
+});
+
+document.getElementById('files-view-toggle-btn').addEventListener('click', async () => {
+    _filesViewMode = _filesViewMode === 'table' ? 'folder' : 'table';
+    document.getElementById('files-view-toggle-btn').innerHTML = _filesViewMode === 'folder'
+        ? '<i class="bi bi-table me-1"></i>Table view'
+        : '<i class="bi bi-folder2-open me-1"></i>Folder view';
+    document.getElementById('select-all').checked = false;
+    await loadFiles(1);
 });
 
 document.getElementById('convert-selected-btn').addEventListener('click', async () => {
@@ -822,8 +983,9 @@ document.getElementById('convert-now-btn').addEventListener('click', async () =>
 bindColumnInteractions();
 
 const logModalEl = document.getElementById('job-log-modal');
-if (logModalEl && window.bootstrap && window.bootstrap.Modal) {
-    _jobLogModal = new window.bootstrap.Modal(logModalEl);
+const bs = globalThis.bootstrap;
+if (logModalEl && bs && bs.Modal) {
+    _jobLogModal = new bs.Modal(logModalEl);
     logModalEl.addEventListener('hidden.bs.modal', () => {
         _activeLogJobId = null;
         stopJobLogRefresh();
