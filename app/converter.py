@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import re
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
@@ -13,6 +14,11 @@ logger = logging.getLogger(__name__)
 
 # Matches lines like: time=00:01:23.45
 _TIME_RE = re.compile(r"time=(\d{2}):(\d{2}):(\d{2})\.(\d{2})")
+_V4L2_INIT_ERROR_RE = re.compile(
+    r"(h264_v4l2m2m.*(could not find a valid device|can't configure encoder))"
+    r"|(error while opening encoder for output stream)",
+    re.IGNORECASE,
+)
 
 # Callable that receives a progress float in [0, 1].
 type ProgressCallback = Callable[[float], Awaitable[None]]
@@ -70,13 +76,30 @@ def _time_to_seconds(h: str, m: str, s: str, cs: str) -> float:
     return int(h) * 3600 + int(m) * 60 + int(s) + int(cs) / 100
 
 
-def _has_v4l2_h264_devices() -> bool:
-    return all(path.exists() for path in _V4L2_DEVICE_PATHS)
+def _v4l2_device_status() -> tuple[bool, str]:
+    """Return (ready, details) for required V4L2 encoder device nodes."""
+    missing = [str(path) for path in _V4L2_DEVICE_PATHS if not path.exists()]
+    if missing:
+        return False, f"Missing V4L2 devices: {', '.join(missing)}"
+
+    inaccessible: list[str] = []
+    for path in _V4L2_DEVICE_PATHS:
+        if not os.access(path, os.R_OK | os.W_OK):
+            inaccessible.append(str(path))
+
+    if inaccessible:
+        return False, (
+            "V4L2 devices exist but are not read/write accessible: "
+            + ", ".join(inaccessible)
+        )
+
+    return True, "V4L2 encoder devices are present and accessible"
 
 
 def is_v4l2_h264_available() -> bool:
     """Return True when V4L2 H.264 devices are available in the container."""
-    return _has_v4l2_h264_devices()
+    ready, _ = _v4l2_device_status()
+    return ready
 
 
 async def convert_file(
@@ -113,13 +136,16 @@ async def convert_file(
     out = _output_path(input_path, profile)
     out.unlink(missing_ok=True)
 
-    use_v4l2_h264 = profile.codec == "h264" and _has_v4l2_h264_devices()
+    v4l2_ready, v4l2_detail = _v4l2_device_status()
+    use_v4l2_h264 = profile.codec == "h264" and v4l2_ready
 
     video_args: list[str]
     if use_v4l2_h264:
         # V4L2 M2M uses bitrate-based control rather than CRF.
         video_args = ["-c:v", "h264_v4l2m2m", "-b:v", "4M"]
         logger.info("Using V4L2 H.264 hardware encoder (h264_v4l2m2m)")
+        if on_log is not None:
+            await on_log(f"Using V4L2 H.264 encoder: {v4l2_detail}")
     else:
         video_args = [
             "-c:v",
@@ -129,81 +155,112 @@ async def convert_file(
             "-preset",
             "slow",
         ]
+        if profile.codec == "h264" and on_log is not None:
+            await on_log(f"Using software H.264 encoder (libx264). {v4l2_detail}")
 
-    cmd: list[str] = [
-        ffmpeg_bin,
-        "-i",
-        str(input_path),
-        *video_args,
-        "-c:a",
-        profile.audio_encoder,
-    ]
-
-    if profile.audio_encoder == "aac":
-        cmd.extend(["-b:a", "128k"])
-
-    cmd.extend(
-        [
-            "-movflags",
-            "+faststart",
-            "-y",
-            str(out),
+    async def _run_once(current_video_args: list[str]) -> ConversionResult:
+        cmd: list[str] = [
+            ffmpeg_bin,
+            "-i",
+            str(input_path),
+            *current_video_args,
+            "-c:a",
+            profile.audio_encoder,
         ]
-    )
 
-    try:
-        proc = await asyncio.create_subprocess_exec(
-            *cmd,
-            stdout=asyncio.subprocess.DEVNULL,
-            stderr=asyncio.subprocess.PIPE,
+        if profile.audio_encoder == "aac":
+            cmd.extend(["-b:a", "128k"])
+
+        cmd.extend(
+            [
+                "-movflags",
+                "+faststart",
+                "-y",
+                str(out),
+            ]
         )
-    except OSError as exc:
-        return ConversionResult(success=False, output_path=None, error=str(exc))
 
-    # Track last reported progress to avoid spamming DB writes.
-    last_reported: float = -1.0
-    error_tail: list[str] = []
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                *cmd,
+                stdout=asyncio.subprocess.DEVNULL,
+                stderr=asyncio.subprocess.PIPE,
+            )
+        except OSError as exc:
+            return ConversionResult(success=False, output_path=None, error=str(exc))
 
-    async def _read_stderr() -> None:
-        nonlocal last_reported
-        assert proc.stderr is not None
-        async for raw_line in proc.stderr:
-            line = raw_line.decode("utf-8", errors="replace").strip()
-            error_tail.append(line)
-            if len(error_tail) > 20:
-                error_tail.pop(0)
+        # Track last reported progress to avoid spamming DB writes.
+        last_reported: float = -1.0
+        error_tail: list[str] = []
 
-            if on_log is not None:
-                await on_log(line)
+        async def _read_stderr() -> None:
+            nonlocal last_reported
+            assert proc.stderr is not None
+            async for raw_line in proc.stderr:
+                line = raw_line.decode("utf-8", errors="replace").strip()
+                error_tail.append(line)
+                if len(error_tail) > 40:
+                    error_tail.pop(0)
 
-            if duration_seconds and duration_seconds > 0:
-                if m := _TIME_RE.search(line):
-                    current = _time_to_seconds(*m.groups())
-                    progress = min(current / duration_seconds, 1.0)
-                    # Report every 2 % to reduce DB writes.
-                    if progress - last_reported >= 0.02:
-                        last_reported = progress
-                        await on_progress(progress)
+                if on_log is not None:
+                    await on_log(line)
 
-    async def _watch_cancel() -> None:
-        await cancel_event.wait()
-        proc.terminate()
+                if duration_seconds and duration_seconds > 0:
+                    if m := _TIME_RE.search(line):
+                        current = _time_to_seconds(*m.groups())
+                        progress = min(current / duration_seconds, 1.0)
+                        # Report every 2 % to reduce DB writes.
+                        if progress - last_reported >= 0.02:
+                            last_reported = progress
+                            await on_progress(progress)
 
-    stderr_task = asyncio.create_task(_read_stderr())
-    cancel_task = asyncio.create_task(_watch_cancel())
+        async def _watch_cancel() -> None:
+            await cancel_event.wait()
+            proc.terminate()
 
-    await proc.wait()
-    cancel_task.cancel()
-    await stderr_task
+        stderr_task = asyncio.create_task(_read_stderr())
+        cancel_task = asyncio.create_task(_watch_cancel())
+
+        await proc.wait()
+        cancel_task.cancel()
+        await stderr_task
+
+        if cancel_event.is_set():
+            out.unlink(missing_ok=True)
+            return ConversionResult(success=False, output_path=None, error="Cancelled")
+
+        if proc.returncode != 0:
+            out.unlink(missing_ok=True)
+            error_text = "\n".join(error_tail)
+            return ConversionResult(success=False, output_path=None, error=error_text)
+
+        await on_progress(1.0)
+        return ConversionResult(success=True, output_path=out, error=None)
+
+    first_result = await _run_once(video_args)
+    if first_result.success or not use_v4l2_h264:
+        return first_result
 
     if cancel_event.is_set():
-        out.unlink(missing_ok=True)
-        return ConversionResult(success=False, output_path=None, error="Cancelled")
+        return first_result
 
-    if proc.returncode != 0:
-        out.unlink(missing_ok=True)
-        error_text = "\n".join(error_tail)
-        return ConversionResult(success=False, output_path=None, error=error_text)
+    error_text = first_result.error or ""
+    if not _V4L2_INIT_ERROR_RE.search(error_text):
+        return first_result
 
-    await on_progress(1.0)
-    return ConversionResult(success=True, output_path=out, error=None)
+    if on_log is not None:
+        await on_log(
+            "V4L2 encoder failed to initialize at runtime; "
+            "falling back to software libx264. "
+            "Check device passthrough (/dev/video10-12), permissions, and container runtime."
+        )
+
+    software_args = [
+        "-c:v",
+        "libx264",
+        "-crf",
+        str(crf),
+        "-preset",
+        "slow",
+    ]
+    return await _run_once(software_args)

@@ -144,6 +144,70 @@ No code changes are then required. The app detects these devices automatically a
 > driver may not be available in all kernel/OS combinations. Software
 > encoding with `libx264` is the default for reliability.
 
+### V4L2 prerequisites and fallback behavior
+
+For `h264_v4l2m2m` to work in Docker, all of the following must be true:
+
+- `/dev/video10`, `/dev/video11`, and `/dev/video12` are passed into the container
+- the container user has read/write access to those device nodes
+- the host kernel/driver supports V4L2 M2M encode for your platform
+
+#### Ensuring container user has RW access to `/dev/video*`
+
+Inside this image, the app runs as user `tracker` (uid `1000`). Device nodes on the host are usually owned by `root:video` with mode like `0660`, so uid `1000` must either be in the device group or the node permissions must be relaxed.
+
+Recommended options:
+
+1. Add the host `video` group to the container process
+
+```yaml
+services:
+  tracker:
+    devices:
+      - /dev/video10:/dev/video10
+      - /dev/video11:/dev/video11
+      - /dev/video12:/dev/video12
+    group_add:
+      - "video" # or numeric GID if name resolution fails
+```
+
+If group name mapping does not work in your environment, use the numeric GID from host:
+
+```bash
+getent group video
+# example output: video:x:44:
+```
+
+Then set:
+
+```yaml
+group_add:
+  - "44"
+```
+
+2. (Alternative) Run container as a user/group that already has access
+
+```yaml
+services:
+  tracker:
+    user: "1000:44" # uid:gid, where gid is host video group
+```
+
+After changes, recreate the service:
+
+```bash
+docker compose up -d --force-recreate
+```
+
+Quick verification from container:
+
+```bash
+docker compose exec tracker sh -lc 'id && ls -l /dev/video10 /dev/video11 /dev/video12'
+docker compose exec tracker sh -lc 'test -r /dev/video10 -a -w /dev/video10 && echo ok || echo no-access'
+```
+
+If the app detects devices but ffmpeg still fails with errors like `Could not find a valid device` or `can't configure encoder`, it logs the failure and automatically retries with software `libx264` instead of failing the whole conversion job.
+
 ---
 
 ## Development
