@@ -12,7 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.auth import require_auth
 from app.database import get_session
 from app.models import ConversionJob, ConversionStatus, MediaFile
-from app.schemas import JobCreateRequest, JobOut, JobPage, MessageOut
+from app.schemas import JobCreateRequest, JobLogOut, JobOut, JobPage, MessageOut
 from app.worker import ConversionWorker
 
 router = APIRouter(prefix="/api/jobs", tags=["jobs"])
@@ -81,6 +81,23 @@ async def get_job(
     if job is None:
         raise HTTPException(status_code=404, detail="Job not found")
     return JobOut.model_validate(job)
+
+
+@router.get("/{job_id}/logs", response_model=JobLogOut)
+async def get_job_logs(
+    job_id: int,
+    request: Request,
+    _: _Auth,
+    session: _Session,
+    tail: int = Query(default=400, ge=20, le=5000),
+) -> JobLogOut:
+    job = await session.get(ConversionJob, job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="Job not found")
+
+    worker: ConversionWorker = _get_worker(request)
+    log, truncated = worker.read_job_log(job_id, max_lines=tail)
+    return JobLogOut(job_id=job_id, log=log, truncated=truncated)
 
 
 @router.post("", response_model=list[JobOut], status_code=201)

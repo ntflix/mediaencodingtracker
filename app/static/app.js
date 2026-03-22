@@ -24,6 +24,9 @@ let _queuePerPage = 50;
 let _queueStatus = '';
 let _queueSortBy = 'created_at';
 let _queueSortDir = 'desc';
+let _jobLogModal = null;
+let _activeLogJobId = null;
+let _jobLogRefreshTimer = null;
 
 const CODEC_COLORS = {
     h264: '#198754', hevc: '#dc3545', vp9: '#fd7e14',
@@ -265,29 +268,29 @@ async function loadQueue(page, silent = false) {
         return;
     }
 
-    const tbody = document.getElementById('queue-tbody');
-    tbody.innerHTML = data.items.map(j => `
-    <tr>
-      <td>${j.id}</td>
-      <td class="text-break" style="max-width:260px">${j.media_file ? j.media_file.filename : j.media_file_id}</td>
-      <td>${j.quality}</td>
-      <td><span class="status-${j.status}"><i class="bi ${statusIcon(j.status)} me-1"></i>${j.status}</span></td>
-      <td style="min-width:120px">
-        ${j.status === 'running'
-            ? `<div class="progress mt-1"><div class="progress-bar progress-bar-striped progress-bar-animated" style="width:${Math.round(j.progress * 100)}%"></div></div><span class="small">${Math.round(j.progress * 100)}%</span>`
-            : j.status === 'completed' ? '100%' : '-'}
-      </td>
-      <td>${j.started_at ? new Date(j.started_at).toLocaleString() : '-'}</td>
-      <td>
-        ${['pending', 'running'].includes(j.status)
-            ? `<button class="btn btn-xs btn-sm btn-outline-warning" onclick="cancelJob(${j.id})"><i class="bi bi-stop-circle"></i></button>`
-            : `<button class="btn btn-xs btn-sm btn-outline-danger" onclick="deleteJob(${j.id})"><i class="bi bi-trash"></i></button>`}
-      </td>
-    </tr>
-  `).join('');
+        const tbody = document.getElementById('queue-tbody');
+        tbody.innerHTML = data.items.map(j => `
+        <tr class="queue-row" data-job-id="${j.id}" data-job-status="${j.status}">
+            <td>${j.id}</td>
+            <td class="text-break" style="max-width:260px">${j.media_file ? j.media_file.filename : j.media_file_id}</td>
+            <td>${j.quality}</td>
+            <td><span class="status-${j.status}"><i class="bi ${statusIcon(j.status)} me-1"></i>${j.status}</span></td>
+            <td style="min-width:120px">
+                ${j.status === 'running'
+                        ? `<div class="progress mt-1"><div class="progress-bar progress-bar-striped progress-bar-animated" style="width:${Math.round(j.progress * 100)}%"></div></div><span class="small">${Math.round(j.progress * 100)}%</span>`
+                        : j.status === 'completed' ? '100%' : '-'}
+            </td>
+            <td>${j.started_at ? new Date(j.started_at).toLocaleString() : '-'}</td>
+            <td>
+                ${['pending', 'running'].includes(j.status)
+                        ? `<button class="btn btn-xs btn-sm btn-outline-warning queue-action" onclick="cancelJob(${j.id})"><i class="bi bi-stop-circle"></i></button>`
+                        : `<button class="btn btn-xs btn-sm btn-outline-danger queue-action" onclick="deleteJob(${j.id})"><i class="bi bi-trash"></i></button>`}
+            </td>
+        </tr>
+    `).join('');
 
-    renderPagination('queue-pagination', data.total, _queuePage, _queuePerPage, loadQueue);
-    syncSortHeaderState('queue-thead', _queueSortBy, _queueSortDir, !!_queueStatus);
+        renderPagination('queue-pagination', data.total, _queuePage, _queuePerPage, loadQueue);
+        syncSortHeaderState('queue-thead', _queueSortBy, _queueSortDir, !!_queueStatus);
 }
 
 function statusIcon(s) {
@@ -298,6 +301,55 @@ function statusIcon(s) {
         failed: 'bi-x-circle',
         cancelled: 'bi-slash-circle',
     }[s] || 'bi-question';
+}
+
+function stopJobLogRefresh() {
+    if (_jobLogRefreshTimer) {
+        clearInterval(_jobLogRefreshTimer);
+        _jobLogRefreshTimer = null;
+    }
+}
+
+async function refreshJobLogModal(jobId) {
+    const pre = document.getElementById('job-log-content');
+    const meta = document.getElementById('job-log-meta');
+
+    try {
+        const [job, logs] = await Promise.all([
+            get(`/api/jobs/${jobId}`),
+            get(`/api/jobs/${jobId}/logs?tail=600`),
+        ]);
+
+        pre.textContent = logs.log || '(No ffmpeg logs captured yet for this job.)';
+        const trunc = logs.truncated ? ' (showing tail)' : '';
+        meta.textContent = `Job #${jobId} - ${job.status}${trunc}`;
+
+        if (job.status === 'running' || job.status === 'pending') {
+            if (!_jobLogRefreshTimer) {
+                _jobLogRefreshTimer = setInterval(() => {
+                    if (_activeLogJobId === jobId) {
+                        refreshJobLogModal(jobId);
+                    }
+                }, 2500);
+            }
+        } else {
+            stopJobLogRefresh();
+        }
+    } catch (e) {
+        pre.textContent = `Failed to load logs: ${e.message}`;
+        meta.textContent = `Job #${jobId}`;
+        stopJobLogRefresh();
+    }
+}
+
+async function openJobLogModal(jobId) {
+    if (!_jobLogModal) return;
+    _activeLogJobId = jobId;
+    stopJobLogRefresh();
+    document.getElementById('job-log-content').textContent = 'Loading ffmpeg logs...';
+    document.getElementById('job-log-meta').textContent = `Job #${jobId}`;
+    _jobLogModal.show();
+    await refreshJobLogModal(jobId);
 }
 
 async function loadSettings() {
@@ -318,6 +370,8 @@ async function loadSettings() {
     sourceBox.innerHTML = s.source_codecs
         .map(c => `<span class="badge codec-badge" style="background:${codecColor(c)}">${c}</span>`)
         .join('');
+
+    document.getElementById('s-ffmpeg-bin').textContent = s.ffmpeg_bin;
 }
 
 async function runSetupCheck() {
@@ -686,6 +740,13 @@ document.getElementById('select-all').addEventListener('change', e => {
 
 document.getElementById('files-tbody').addEventListener('change', () => updateConvertBtn());
 
+document.getElementById('queue-tbody').addEventListener('click', e => {
+    if (e.target.closest('.queue-action')) return;
+    const row = e.target.closest('tr.queue-row');
+    if (!row) return;
+    openJobLogModal(+row.dataset.jobId);
+});
+
 document.getElementById('convert-selected-btn').addEventListener('click', async () => {
     const ids = [...document.querySelectorAll('.file-check:checked')].map(cb => +cb.dataset.id);
     if (ids.length === 0) return;
@@ -759,6 +820,15 @@ document.getElementById('convert-now-btn').addEventListener('click', async () =>
 });
 
 bindColumnInteractions();
+
+const logModalEl = document.getElementById('job-log-modal');
+if (logModalEl && window.bootstrap && window.bootstrap.Modal) {
+    _jobLogModal = new window.bootstrap.Modal(logModalEl);
+    logModalEl.addEventListener('hidden.bs.modal', () => {
+        _activeLogJobId = null;
+        stopJobLogRefresh();
+    });
+}
 
 loadCredentials();
 if (_authHeader) {

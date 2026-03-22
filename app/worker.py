@@ -6,6 +6,7 @@ import asyncio
 import logging
 from datetime import UTC, datetime
 from pathlib import Path
+from collections import deque
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from sqlalchemy.orm import selectinload
@@ -40,6 +41,8 @@ class ConversionWorker:
         self._queue: asyncio.Queue[int] = asyncio.Queue()
         self._cancel_events: dict[int, asyncio.Event] = {}
         self._task: asyncio.Task[None] | None = None
+        self._job_logs_dir = self._config.db_path.parent / "job_logs"
+        self._job_logs_dir.mkdir(parents=True, exist_ok=True)
 
     # ------------------------------------------------------------------
     # Lifecycle
@@ -117,6 +120,7 @@ class ConversionWorker:
                 self._app_state.notify()
 
     async def _process_inner(self, job_id: int) -> None:
+        self._clear_job_log(job_id)
         # ------ load job & file -----------------------------------------
         async with self._sf() as session:
             result = await session.execute(
@@ -136,6 +140,7 @@ class ConversionWorker:
                 job.status = ConversionStatus.FAILED
                 job.error_message = "Source file not found on disk"
                 job.completed_at = datetime.now(UTC).replace(tzinfo=None)
+                self._append_job_log(job_id, "Source file not found on disk")
                 await session.commit()
                 return
 
@@ -146,6 +151,7 @@ class ConversionWorker:
         cancel_event = self._cancel_events.get(job_id, asyncio.Event())
         crf = CRF_MAP[Quality(job.quality)]
         duration = media_file.duration_seconds
+        self._append_job_log(job_id, f"Using ffmpeg binary: {self._config.ffmpeg_bin}")
 
         async def on_progress(progress: float) -> None:
             if self._app_state is not None:
@@ -157,13 +163,18 @@ class ConversionWorker:
                     row.progress = progress
                     await ps.commit()
 
+        async def on_log(line: str) -> None:
+            self._append_job_log(job_id, line)
+
         conv_result: ConversionResult = await convert_file(
             input_path=input_path,
             crf=crf,
             destination_codec=self._config.destination_codec,
+            ffmpeg_bin=self._config.ffmpeg_bin,
             on_progress=on_progress,
             cancel_event=cancel_event,
             duration_seconds=duration,
+            on_log=on_log,
         )
 
         # ------ persist outcome -----------------------------------------
@@ -175,6 +186,7 @@ class ConversionWorker:
 
             if cancel_event.is_set():
                 job.status = ConversionStatus.CANCELLED
+                self._append_job_log(job_id, "Conversion cancelled")
 
             elif conv_result.success and conv_result.output_path:
                 job.status = ConversionStatus.COMPLETED
@@ -182,15 +194,44 @@ class ConversionWorker:
                 job.output_path = str(
                     conv_result.output_path.relative_to(self._media_root)
                 )
+                self._append_job_log(job_id, f"Conversion completed: {job.output_path}")
                 if job.delete_original:
                     input_path.unlink(missing_ok=True)
                     mf = await session.get(MediaFile, job.media_file_id)
                     if mf is not None:
                         mf.is_missing = True
+                        self._append_job_log(job_id, "Source file deleted after successful conversion")
 
             else:
                 job.status = ConversionStatus.FAILED
                 job.error_message = conv_result.error
+                if conv_result.error:
+                    self._append_job_log(job_id, conv_result.error)
 
             await session.commit()
         logger.info("Job %d finished with status %s", job_id, job.status)
+
+    def _job_log_path(self, job_id: int) -> Path:
+        return self._job_logs_dir / f"job-{job_id}.log"
+
+    def _clear_job_log(self, job_id: int) -> None:
+        self._job_log_path(job_id).unlink(missing_ok=True)
+
+    def _append_job_log(self, job_id: int, line: str) -> None:
+        with self._job_log_path(job_id).open("a", encoding="utf-8") as handle:
+            handle.write(line.rstrip("\n") + "\n")
+
+    def read_job_log(self, job_id: int, max_lines: int = 400) -> tuple[str, bool]:
+        path = self._job_log_path(job_id)
+        if not path.exists():
+            return "", False
+
+        with path.open("r", encoding="utf-8", errors="replace") as handle:
+            all_lines = handle.readlines()
+
+        truncated = len(all_lines) > max_lines
+        if not truncated:
+            return "".join(all_lines), False
+
+        tail = deque(all_lines, maxlen=max_lines)
+        return "".join(tail), True

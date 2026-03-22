@@ -44,6 +44,7 @@ async def get_settings(
         delete_original_after_convert=config.delete_original_after_convert,
         destination_codec=config.destination_codec,
         source_codecs=config.source_codecs,
+        ffmpeg_bin=config.ffmpeg_bin,
     )
 
 

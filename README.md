@@ -16,6 +16,7 @@ Made pretty much entirely by GPT-5.3-Codex in the background while I was doing o
 | **Conversion quality**      | CRF-based: Low (28), Medium (23), High (18), Very High (15)                        |
 | **Delete original**         | Optionally remove the source file after a successful encode                        |
 | **Progress tracking**       | ffmpeg stderr is parsed; progress (0–100 %) is polled live in the UI               |
+| **Queue log viewer**        | Click any queue row to inspect captured ffmpeg stderr logs (live while running)    |
 | **Stats page**              | File counts and storage by codec; job status breakdown; Chart.js charts            |
 | **Scheduled scan**          | Cron-based directory scan to pick up newly added media                             |
 | **Auth**                    | HTTP Basic Auth; credentials set via environment variable                          |
@@ -87,7 +88,17 @@ Compose-controlled runtime settings (shown read-only in the Settings page):
 | `DELETE_ORIGINAL_AFTER_CONVERT` | `false`                   | Delete source file after successful conversion             |
 | `DESTINATION_CODEC`             | `h264`                    | Destination codec to convert to                            |
 | `SOURCE_CODECS`                 | `hevc,vp9,av1,mpeg4`      | Source codecs to convert from                              |
+| `FFMPEG_BIN`                    | `ffmpeg`                  | ffmpeg executable path inside the container                |
 | `COMPOSE_FILE_PATH`             | `/app/docker-compose.yml` | Compose file path used by one-time setup validation screen |
+
+If you want to run a host-provided ffmpeg binary, bind-mount it and set `FFMPEG_BIN` to the in-container path:
+
+```yaml
+volumes:
+  - /opt/homebrew/bin:/host-bin:ro
+environment:
+  FFMPEG_BIN: /host-bin/ffmpeg
+```
 
 ---
 

@@ -127,6 +127,24 @@
     .status-cancelled {
       color: #6c757d;
     }
+
+    .queue-row {
+      cursor: pointer;
+    }
+
+    .queue-row:hover {
+      background: rgba(255, 255, 255, .04);
+    }
+
+    #job-log-content {
+      max-height: 62vh;
+      overflow: auto;
+      white-space: pre-wrap;
+      word-break: break-word;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      font-size: .86rem;
+      line-height: 1.35;
+    }
   </style>
 </head>
 
@@ -251,6 +269,7 @@
       <div id="page-queue" class="page d-none">
         <div class="d-flex align-items-center gap-3 mb-4">
           <h4 class="mb-0"><i class="bi bi-list-task me-2"></i>Conversion Queue</h4>
+          <span class="small text-muted">Click a row to view ffmpeg logs</span>
           <select id="filter-status" class="form-select form-select-sm ms-auto" style="width:180px">
             <option value="">All statuses</option>
             <option value="pending">pending</option>
@@ -313,6 +332,7 @@
                   <label class="form-label d-block mb-1">Source codecs (convert from these codecs)</label>
                   <div id="source-codecs-box" class="d-flex flex-wrap gap-2"></div>
                 </div>
+                <div class="mb-3"><span class="text-muted">ffmpeg binary:</span> <code id="s-ffmpeg-bin" class="ms-1"></code></div>
                 <button id="convert-now-btn" class="btn btn-sm btn-outline-primary">
                   <i class="bi bi-arrow-repeat me-1"></i>Convert now
                 </button>
@@ -325,6 +345,21 @@
 
     </div><!-- /main-content -->
   </div><!-- /app-shell -->
+
+  <div class="modal fade" id="job-log-modal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-lg modal-dialog-scrollable">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title"><i class="bi bi-terminal me-2"></i>FFmpeg Logs</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+        </div>
+        <div class="modal-body">
+          <div id="job-log-meta" class="small text-muted mb-2"></div>
+          <pre id="job-log-content" class="mb-0"></pre>
+        </div>
+      </div>
+    </div>
+  </div>
 
   <!-- ── Bottom status bar (always visible) ───────────────────────────── -->
   <div id="status-bar" class="d-flex align-items-center gap-3 px-3 text-muted">

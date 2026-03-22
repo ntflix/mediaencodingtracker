@@ -58,6 +58,10 @@ class Config(BaseSettings):
             VideoCodec.MPEG4,
         ]
     )
+    ffmpeg_bin: str = Field(
+        default="ffmpeg",
+        description="Path to ffmpeg executable inside the container.",
+    )
 
     # Optional: path to docker-compose used for setup validation checks.
     compose_file_path: Path = Field(default=Path("/app/docker-compose.yml"))
@@ -79,6 +83,13 @@ class Config(BaseSettings):
     def _normalize_destination_codec(cls, value: object) -> object:
         if isinstance(value, str):
             return value.strip().lower()
+        return value
+
+    @field_validator("ffmpeg_bin", mode="before")
+    @classmethod
+    def _normalize_ffmpeg_bin(cls, value: object) -> object:
+        if isinstance(value, str):
+            return value.strip()
         return value
 
 

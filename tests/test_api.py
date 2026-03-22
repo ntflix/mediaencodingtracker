@@ -171,6 +171,28 @@ async def test_cannot_delete_running_job(
     assert res.status_code == 400
 
 
+@pytest.mark.asyncio
+async def test_get_job_logs_empty(client: AsyncClient, db_session: AsyncSession) -> None:
+    mf = await _add_file(db_session)
+    job = ConversionJob(media_file_id=mf.id, status=ConversionStatus.FAILED)
+    db_session.add(job)
+    await db_session.commit()
+    await db_session.refresh(job)
+
+    res = await client.get(f"/api/jobs/{job.id}/logs", headers=_AUTH)
+    assert res.status_code == 200
+    data = res.json()
+    assert data["job_id"] == job.id
+    assert data["log"] == ""
+    assert data["truncated"] is False
+
+
+@pytest.mark.asyncio
+async def test_get_job_logs_not_found(client: AsyncClient) -> None:
+    res = await client.get("/api/jobs/9999/logs", headers=_AUTH)
+    assert res.status_code == 404
+
+
 # ---------------------------------------------------------------------------
 # Settings
 # ---------------------------------------------------------------------------
@@ -184,6 +206,7 @@ async def test_get_settings(client: AsyncClient) -> None:
     assert "scan_schedule" in data
     assert "destination_codec" in data
     assert "source_codecs" in data
+    assert "ffmpeg_bin" in data
 
 
 @pytest.mark.asyncio

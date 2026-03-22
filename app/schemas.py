@@ -73,6 +73,12 @@ class JobPage(BaseModel):
     items: list[JobOut]
 
 
+class JobLogOut(BaseModel):
+    job_id: int
+    log: str
+    truncated: bool
+
+
 # ---------------------------------------------------------------------------
 # Statistics
 # ---------------------------------------------------------------------------
@@ -104,6 +110,7 @@ class UserSettingsOut(BaseModel):
     delete_original_after_convert: bool
     destination_codec: str
     source_codecs: list[str]
+    ffmpeg_bin: str
 
 
 class SetupCheckItem(BaseModel):

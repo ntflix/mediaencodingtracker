@@ -66,7 +66,7 @@ async def _shared() -> (
     tmp_media = pathlib.Path(tempfile.mkdtemp())
     test_config = Config(
         media_root=tmp_media,
-        db_path=pathlib.Path(":memory:"),
+        db_path=tmp_media / "tracker.db",
         admin_user="testuser",
         admin_pass="testpass",
         compose_file_path=pathlib.Path(__file__).resolve().parents[1]

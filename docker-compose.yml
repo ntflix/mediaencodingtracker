@@ -11,6 +11,8 @@ services:
       # Your SMB share — already mounted on the host.
       # Change the left-hand path to wherever your share is mounted.
       - /Volumes/glass/media/movies:/media:rw
+      # Optional: bind a host ffmpeg binary directory and point FFMPEG_BIN at it.
+      # - /opt/homebrew/bin:/host-bin:ro
     environment:
       # ── Paths (must match volume mounts above) ──
       MEDIA_ROOT: /media
@@ -34,6 +36,10 @@ services:
       DELETE_ORIGINAL_AFTER_CONVERT: false
       DESTINATION_CODEC: h264
       SOURCE_CODECS: hevc,vp9,av1,mpeg4
+      # Optional: executable path inside the container.
+      # Example when using the optional /opt/homebrew/bin mount above:
+      # FFMPEG_BIN: /host-bin/ffmpeg
+      FFMPEG_BIN: ffmpeg
       COMPOSE_FILE_PATH: /app/docker-compose.yml
 
 # Optional: grant access to V4L2 devices for hardware-accelerated encoding.

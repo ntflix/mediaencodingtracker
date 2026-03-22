@@ -16,6 +16,7 @@ _TIME_RE = re.compile(r"time=(\d{2}):(\d{2}):(\d{2})\.(\d{2})")
 
 # Callable that receives a progress float in [0, 1].
 type ProgressCallback = Callable[[float], Awaitable[None]]
+type LogCallback = Callable[[str], Awaitable[None]]
 
 
 @dataclass(frozen=True, slots=True)
@@ -82,9 +83,11 @@ async def convert_file(
     input_path: Path,
     crf: int,
     destination_codec: str,
+    ffmpeg_bin: str,
     on_progress: ProgressCallback,
     cancel_event: asyncio.Event,
     duration_seconds: float | None = None,
+    on_log: LogCallback | None = None,
 ) -> ConversionResult:
     """Convert *input_path* to the configured codec profile with the given CRF.
 
@@ -128,7 +131,7 @@ async def convert_file(
         ]
 
     cmd: list[str] = [
-        "ffmpeg",
+        ffmpeg_bin,
         "-i",
         str(input_path),
         *video_args,
@@ -169,6 +172,9 @@ async def convert_file(
             error_tail.append(line)
             if len(error_tail) > 20:
                 error_tail.pop(0)
+
+            if on_log is not None:
+                await on_log(line)
 
             if duration_seconds and duration_seconds > 0:
                 if m := _TIME_RE.search(line):
