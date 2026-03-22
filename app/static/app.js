@@ -268,8 +268,8 @@ async function loadQueue(page, silent = false) {
         return;
     }
 
-        const tbody = document.getElementById('queue-tbody');
-        tbody.innerHTML = data.items.map(j => `
+    const tbody = document.getElementById('queue-tbody');
+    tbody.innerHTML = data.items.map(j => `
         <tr class="queue-row" data-job-id="${j.id}" data-job-status="${j.status}">
             <td>${j.id}</td>
             <td class="text-break" style="max-width:260px">${j.media_file ? j.media_file.filename : j.media_file_id}</td>
@@ -277,20 +277,20 @@ async function loadQueue(page, silent = false) {
             <td><span class="status-${j.status}"><i class="bi ${statusIcon(j.status)} me-1"></i>${j.status}</span></td>
             <td style="min-width:120px">
                 ${j.status === 'running'
-                        ? `<div class="progress mt-1"><div class="progress-bar progress-bar-striped progress-bar-animated" style="width:${Math.round(j.progress * 100)}%"></div></div><span class="small">${Math.round(j.progress * 100)}%</span>`
-                        : j.status === 'completed' ? '100%' : '-'}
+            ? `<div class="progress mt-1"><div class="progress-bar progress-bar-striped progress-bar-animated" style="width:${Math.round(j.progress * 100)}%"></div></div><span class="small">${Math.round(j.progress * 100)}%</span>`
+            : j.status === 'completed' ? '100%' : '-'}
             </td>
             <td>${j.started_at ? new Date(j.started_at).toLocaleString() : '-'}</td>
             <td>
                 ${['pending', 'running'].includes(j.status)
-                        ? `<button class="btn btn-xs btn-sm btn-outline-warning queue-action" onclick="cancelJob(${j.id})"><i class="bi bi-stop-circle"></i></button>`
-                        : `<button class="btn btn-xs btn-sm btn-outline-danger queue-action" onclick="deleteJob(${j.id})"><i class="bi bi-trash"></i></button>`}
+            ? `<button class="btn btn-xs btn-sm btn-outline-warning queue-action" onclick="cancelJob(${j.id})"><i class="bi bi-stop-circle"></i></button>`
+            : `<button class="btn btn-xs btn-sm btn-outline-danger queue-action" onclick="deleteJob(${j.id})"><i class="bi bi-trash"></i></button>`}
             </td>
         </tr>
     `).join('');
 
-        renderPagination('queue-pagination', data.total, _queuePage, _queuePerPage, loadQueue);
-        syncSortHeaderState('queue-thead', _queueSortBy, _queueSortDir, !!_queueStatus);
+    renderPagination('queue-pagination', data.total, _queuePage, _queuePerPage, loadQueue);
+    syncSortHeaderState('queue-thead', _queueSortBy, _queueSortDir, !!_queueStatus);
 }
 
 function statusIcon(s) {

@@ -200,7 +200,9 @@ class ConversionWorker:
                     mf = await session.get(MediaFile, job.media_file_id)
                     if mf is not None:
                         mf.is_missing = True
-                        self._append_job_log(job_id, "Source file deleted after successful conversion")
+                        self._append_job_log(
+                            job_id, "Source file deleted after successful conversion"
+                        )
 
             else:
                 job.status = ConversionStatus.FAILED

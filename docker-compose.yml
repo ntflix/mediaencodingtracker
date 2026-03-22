@@ -11,8 +11,8 @@ services:
       # Your SMB share — already mounted on the host.
       # Change the left-hand path to wherever your share is mounted.
       - /Volumes/glass/media/movies:/media:rw
-      # Optional: bind a host ffmpeg binary directory and point FFMPEG_BIN at it.
-      # - /opt/homebrew/bin:/host-bin:ro
+    # Optional: bind a host ffmpeg binary directory and point FFMPEG_BIN at it.
+    # - /opt/homebrew/bin:/host-bin:ro
     environment:
       # ── Paths (must match volume mounts above) ──
       MEDIA_ROOT: /media

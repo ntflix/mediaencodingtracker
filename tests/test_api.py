@@ -172,7 +172,9 @@ async def test_cannot_delete_running_job(
 
 
 @pytest.mark.asyncio
-async def test_get_job_logs_empty(client: AsyncClient, db_session: AsyncSession) -> None:
+async def test_get_job_logs_empty(
+    client: AsyncClient, db_session: AsyncSession
+) -> None:
     mf = await _add_file(db_session)
     job = ConversionJob(media_file_id=mf.id, status=ConversionStatus.FAILED)
     db_session.add(job)
